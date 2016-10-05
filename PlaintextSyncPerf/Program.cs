@@ -1,10 +1,12 @@
-﻿using System;
-using System.Text;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using System.Threading;
 using Microsoft.Extensions.Configuration;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Text;
+using System.Threading;
 
 namespace PlaintextSyncPerf
 {
@@ -15,13 +17,27 @@ namespace PlaintextSyncPerf
         private static readonly byte[] _noLockPayload = Encoding.UTF8.GetBytes("Hello,noLock!");
         private static readonly byte[] _lockPayload = Encoding.UTF8.GetBytes("Hello,  lock!");
         private static readonly byte[] _rwlsPayload = Encoding.UTF8.GetBytes("Hello,  rwls!");
+        private static readonly byte[] _rDictPayload = Encoding.UTF8.GetBytes("Hello, rDict!");
+        private static readonly byte[] _cDictPayload = Encoding.UTF8.GetBytes("Hello, cDict!");
 
         private static readonly PathString _noLockPath = new PathString("/nolock");
         private static readonly PathString _lockPath = new PathString("/lock");
         private static readonly PathString _rwlsPath = new PathString("/rwls");
+        private static readonly PathString _rDictPath = new PathString("/rdict");
+        private static readonly PathString _cDictPath = new PathString("/cdict");
 
         private static readonly object _lock = new object();
         private static readonly ReaderWriterLockSlim _rwls = new ReaderWriterLockSlim();
+
+        private static readonly object _key = new object();
+        private static readonly Dictionary<object, byte[]> _dict = new Dictionary<object, byte[]>();
+        private static readonly ConcurrentDictionary<object, byte[]> _cDict = new ConcurrentDictionary<object, byte[]>();
+
+        static Program()
+        {
+            _dict[_key] = _rDictPayload;
+            _cDict[_key] = _cDictPayload;
+        }
 
         public static void Main(string[] args)
         {
@@ -69,6 +85,22 @@ namespace PlaintextSyncPerf
                                 _rwls.ExitReadLock();
                             }
                             payload = _rwlsPayload;
+                        }
+                        else if (context.Request.Path.StartsWithSegments(_rDictPath, StringComparison.Ordinal))
+                        {
+                            _rwls.EnterReadLock();
+                            try
+                            {
+                                _dict.TryGetValue(_key, out payload);
+                            }
+                            finally
+                            {
+                                _rwls.ExitReadLock();
+                            }
+                        }
+                        else if (context.Request.Path.StartsWithSegments(_cDictPath, StringComparison.Ordinal))
+                        {
+                            _cDict.TryGetValue(_key, out payload);
                         }
                         else
                         {
